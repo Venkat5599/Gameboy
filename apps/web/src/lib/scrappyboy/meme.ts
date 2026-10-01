@@ -4,8 +4,8 @@ import { BTN_A, BTN_B, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_UP, BTN_X, type Input 
  * MEME DASH: meme-coin trading made as simple as two buttons.
  *   Pick a coin (big official logo, big UP/DOWN) -> watch live 1-minute candles -> A BUY, B SELL.
  *   Every buy gets an automatic SAFETY NET (sell at -8%) and TREASURE line (sell at +15%).
- * Every button press is a real Jupiter swap on Solana mainnet, signed on-device by the play key
- * (this device's session wallet). The player's real wallet only shows up to load the coin slot.
+ * Every button press is a Jupiter swap on Solana mainnet, signed on-device by the play key
+ * (this device's session wallet). The player's own wallet only shows up to load the coin slot.
  * There is no practice money and nothing is simulated.
  * Data: Jupiter (verified tokens, official logos, prices) and GeckoTerminal (1-minute candles).
  */
@@ -24,6 +24,13 @@ const STAKES: { usd?: number; skr?: number }[] = [{ usd: 1 }, { usd: 5 }, { usd:
 const SKR_DECIMALS = 6;
 const STOP = -0.08;
 const TAKE = 0.15;
+/**
+ * Platform fee on a swap, in basis points, paid to FEE_ACCOUNT by Jupiter inside the swap itself.
+ * Off unless NEXT_PUBLIC_SCRAPPY_FEE_ACCOUNT is set to a wrapped-SOL token account we own, and only
+ * taken on swaps with SOL on one side (the fee is collected in SOL). The chart screen states the fee.
+ */
+export const FEE_BPS = 50;
+const FEE_ACCOUNT = process.env.NEXT_PUBLIC_SCRAPPY_FEE_ACCOUNT ?? "";
 
 interface Coin {
   mint: string;
@@ -48,16 +55,44 @@ interface Position {
   tokens: bigint; // raw token units the buy was quoted to deliver
 }
 
+/**
+ * A trade duel: a friend finished a trade and dared you to beat it on the same coin.
+ * Each player trades their own money from their own play key. Nothing is staked between
+ * players and nothing is paid to the winner: the duel only compares results.
+ */
+export interface Duel {
+  mint: string;
+  pct: number; // the friend's result as a fraction (0.032 = +3.2%)
+  name: string;
+}
+
+export const fmtPct = (p: number) => `${p >= 0 ? "+" : ""}${(p * 100).toFixed(1)}%`;
+
+/** Strictly better wins; a tie leaves the challenger ahead. */
+export const beatsDuel = (mine: number, theirs: number) => mine > theirs;
+
+const BASE58_MINT = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+/** Read a duel link (?duel=<mint>&pct=<percent>&by=<name>). Anything malformed is no duel at all. */
+export function parseDuel(q: URLSearchParams): Duel | null {
+  const mint = q.get("duel") ?? "";
+  const raw = q.get("pct");
+  const pct = Number(raw);
+  if (!BASE58_MINT.test(mint) || raw === null || raw === "" || !Number.isFinite(pct)) return null;
+  const name = (q.get("by") ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 8).toUpperCase() || "A FRIEND";
+  return { mint, pct: Math.max(-100, Math.min(1000, pct)) / 100, name };
+}
+
 export interface MemeWallet {
   /** Mainnet: sign and send a Jupiter swap (base64 v0 transaction) with the play key. Returns the signature. */
   send?: (swapTxBase64: string) => Promise<string>;
-  /** Mainnet: the play key's real balance of a token in raw units, so a sell swaps all of it. */
+  /** Mainnet: the play key's balance of a token in raw units, so a sell swaps all of it. */
   tokenBalance?: (mint: string) => Promise<bigint>;
-  /** Mainnet: the play key's real SOL balance in lamports. */
+  /** Mainnet: the play key's SOL balance in lamports. */
   solBalance?: () => Promise<bigint>;
-  /** The one wallet popup in the game: move lamports of SOL from the real wallet into the coin slot. */
+  /** The one wallet popup in the game: move lamports of SOL from the player's wallet into the coin slot. */
   topUp?: (lamports: bigint) => Promise<string>;
-  /** The play key sends everything back to the real wallet. No popup. */
+  /** The play key sends everything back to the player's wallet. No popup. */
   sweep?: () => Promise<string>;
   /** Ask the player to connect a wallet so the coin slot can be loaded. */
   connect?: () => void;
@@ -66,10 +101,30 @@ export interface MemeWallet {
   /** Devnet swap: input mint + raw amount -> signature + tokens out. */
   devSwap?: (inputMint: string, inputAmount: bigint) => Promise<{ sig: string; out: bigint }>;
   address?: string;
+  /**
+   * The player's own wallet signs every trade and holds the coins; `address`, `send` and the balances
+   * all refer to that wallet. Nothing is kept in the play key, so there is no coin slot to load.
+   */
+  direct?: boolean;
   onTx?: (label: string, sig: string) => void;
+  /** Dare a friend: the host builds the duel link from this finished trade and opens the share sheet. */
+  shareDuel?: (trade: { mint: string; symbol: string; pct: number; sig: string }) => void;
 }
 
 type Scene = "loading" | "pick" | "chart" | "result";
+
+const POS_STORE = "scrappyboy.meme.pos.v1";
+interface SavedPos {
+  net: "main" | "dev";
+  owner: string;
+  mint: string;
+  symbol: string;
+  name: string;
+  decimals: number;
+  entry: number;
+  usd: number;
+  tokens: string;
+}
 
 /** Daylight palette: lavender screen, white panels, ink text, purple accent. */
 const C = {
@@ -80,7 +135,7 @@ const C = {
   up: "#1e7a34",
   down: "#c41a1a",
   gold: "#d4a017",
-  real: "#6e54ff",
+  accent: "#6e54ff",
   edge: "#0e091c",
 };
 
@@ -131,14 +186,73 @@ export class MemeDash {
   private candles: Candle[] = [];
   private stakeIdx = 0;
   private confirmBig = false;
-  private pos: Position | null = null;
-  private result: { text: string; pnl: number; pct: number; why: string } | null = null;
+  // The open trade. Every change is written to this device, so a reload or a closed tab never loses it.
+  private _pos: Position | null = null;
+  private get pos(): Position | null {
+    return this._pos;
+  }
+  private set pos(p: Position | null) {
+    this._pos = p;
+    try {
+      if (!p) localStorage.removeItem(POS_STORE);
+      else {
+        const saved: SavedPos = { net: this.devnet ? "dev" : "main", owner: this.wallet.address ?? "", mint: p.coin.mint, symbol: p.coin.symbol, name: p.coin.name, decimals: p.coin.decimals, entry: p.entry, usd: p.usd, tokens: p.tokens.toString() };
+        localStorage.setItem(POS_STORE, JSON.stringify(saved));
+      }
+    } catch {
+      /* private mode: the trade lives for this session only */
+    }
+  }
+  private lock: WakeLockSentinel | null = null;
+
+  /** Bring back a trade that was open when the page was last closed, if the coins are still held. */
+  private async restorePos(): Promise<void> {
+    if (this._pos) return;
+    let s: SavedPos | null = null;
+    try {
+      s = JSON.parse(localStorage.getItem(POS_STORE) ?? "null") as SavedPos | null;
+    } catch {
+      s = null;
+    }
+    if (!s || s.net !== (this.devnet ? "dev" : "main")) return;
+    if (s.owner && this.wallet.address && s.owner !== this.wallet.address) return; // another wallet's trade: leave it stored
+    const held = this.wallet.tokenBalance ? await this.wallet.tokenBalance(s.mint).catch(() => null) : null;
+    if (held !== null && held <= BigInt(0)) {
+      this.pos = null; // the coins are gone (sold or moved elsewhere): nothing to restore
+      return;
+    }
+    let i = this.coins.findIndex((c) => c.mint === s.mint);
+    if (i < 0) {
+      this.coins.unshift({ mint: s.mint, symbol: s.symbol, name: s.name, icon: null, decimals: s.decimals, price: 0, change24h: 0 });
+      i = 0;
+    }
+    this.idx = i;
+    this._pos = { coin: this.coins[i]!, entry: s.entry, usd: s.usd, tokens: BigInt(s.tokens) };
+  }
+
+  /** The auto-sell lines only work while this screen is on, so keep the phone awake during a trade. */
+  private keepAwake(on: boolean): void {
+    if (typeof navigator === "undefined" || !("wakeLock" in navigator)) return;
+    if (!on) {
+      void this.lock?.release().catch(() => {});
+      this.lock = null;
+      return;
+    }
+    if (this.lock && !this.lock.released) return;
+    void navigator.wakeLock
+      .request("screen")
+      .then((l) => (this.lock = l))
+      .catch(() => {});
+  }
+  private result: { text: string; pnl: number; pct: number; why: string; coin: Coin } | null = null;
+  private duel: Duel | null = null;
+  private lastSellSig = "";
   private busy: string | null = null;
   private error: string | null = null;
   private t = 0;
   private lastPoll = 0;
   private lastCandles = 0;
-  private sol = 0; // SOL price in USD, for real-mode sizing
+  private sol = 0; // SOL price in USD, for sizing trades
   private coinBal: bigint | null = null; // play key SOL balance, refreshed with the price poll
   private lastBal = 0;
   private devnet = false;
@@ -156,8 +270,43 @@ export class MemeDash {
       this.devnet = w.devnet;
       this.coins = []; // roster differs per network: reload
       this.idx = 0;
-      this.pos = null;
+      this._pos = null; // off screen only: the stored trade stays for when its network comes back
     } else if (w.devnet !== undefined) this.devnet = w.devnet;
+  }
+
+  /** A duel link was opened: this is the trade to beat. */
+  setDuel(d: Duel | null): void {
+    this.duel = d;
+  }
+
+  /**
+   * Put the duel's coin under the cursor. A coin that is not already on today's list is only
+   * added when Jupiter marks it verified and it has the same liquidity floor as the list, so a
+   * link can never steer a player into an unlisted token.
+   */
+  private async seatDuel(): Promise<void> {
+    const d = this.duel;
+    if (!d) return;
+    let i = this.coins.findIndex((c) => c.mint === d.mint);
+    if (i < 0 && !this.devnet) {
+      try {
+        type Tok = { id: string; symbol: string; name: string; icon?: string; decimals: number; isVerified?: boolean; liquidity?: number };
+        const list = await json<Tok[]>(`https://lite-api.jup.ag/tokens/v2/search?query=${d.mint}`);
+        const t = list.find((x) => x.id === d.mint);
+        if (t && t.isVerified === true && (t.liquidity ?? 0) >= 25000 && !EXCLUDE.has(t.symbol.toUpperCase())) {
+          this.coins.unshift({ mint: t.id, symbol: t.symbol.toUpperCase(), name: t.name, icon: t.icon ? await loadImage(`/api/icon?u=${encodeURIComponent(t.icon)}`) : null, decimals: t.decimals, price: 0, change24h: 0 });
+          i = 0;
+        }
+      } catch {
+        /* lookup failed: fall through and drop the duel */
+      }
+    }
+    if (i >= 0) this.idx = i;
+    else this.duel = null;
+  }
+
+  private duelFor(c: Coin | undefined): Duel | null {
+    return this.duel && c && this.duel.mint === c.mint ? this.duel : null;
   }
 
   open(): void {
@@ -184,8 +333,10 @@ export class MemeDash {
     if (this.devnet) {
       // Devnet is one honest coin: devUSDC on the Orca devnet pool.
       this.coins = [{ mint: DEV_USDC_MINT, symbol: "USDC", name: "devnet dollar", icon: null, decimals: 6, price: 1, change24h: 0 }];
-      this.scene = "pick";
       this.idx = 0;
+      await this.seatDuel();
+      await this.restorePos();
+      this.scene = this.pos ? "chart" : "pick";
       return;
     }
     try {
@@ -235,8 +386,10 @@ export class MemeDash {
       }
       if (found.length === 0) throw new Error("no coins found right now");
       this.coins = found;
+      await this.seatDuel();
+      await this.restorePos();
       await this.pollPrices();
-      this.scene = "pick";
+      this.scene = this.pos ? "chart" : "pick";
     } catch (e) {
       this.error = (e as Error).message;
     }
@@ -284,16 +437,17 @@ export class MemeDash {
       .finally(() => (this.busy = null));
   }
 
-  /** One real Jupiter swap on mainnet. Returns the signature and the quoted output in raw units. */
+  /** One Jupiter swap on mainnet. Returns the signature and the quoted output in raw units. */
   private async jupSwap(inputMint: string, outputMint: string, amount: bigint): Promise<{ sig: string; out: bigint }> {
     if (!this.wallet.send || !this.wallet.address) throw new Error("no play key on this device");
+    const fee = !!FEE_ACCOUNT && (inputMint === SOL_MINT || outputMint === SOL_MINT);
     const quote = await json<Record<string, unknown>>(
-      `https://lite-api.jup.ag/swap/v1/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=150`,
+      `https://lite-api.jup.ag/swap/v1/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=150${fee ? `&platformFeeBps=${FEE_BPS}` : ""}`,
     );
     const swap = await json<{ swapTransaction: string }>("https://lite-api.jup.ag/swap/v1/swap", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ quoteResponse: quote, userPublicKey: this.wallet.address, dynamicComputeUnitLimit: true, prioritizationFeeLamports: "auto" }),
+      body: JSON.stringify({ quoteResponse: quote, userPublicKey: this.wallet.address, dynamicComputeUnitLimit: true, prioritizationFeeLamports: "auto", ...(fee && { feeAccount: FEE_ACCOUNT }) }),
     });
     const sig = await this.wallet.send(swap.swapTransaction);
     return { sig, out: BigInt((quote.outAmount as string | undefined) ?? 0) };
@@ -312,7 +466,9 @@ export class MemeDash {
       const need = payingSkr ? BigInt(3_000_000) : lamports + BigInt(2_000_000); // SKR buys still need fee SOL
       let bal = this.wallet.solBalance ? await this.wallet.solBalance() : null;
       if (bal !== null && bal < need) {
-        // Empty coin slot: the real wallet signs one top-up, the swap itself signs silently.
+        // Trading straight from the player's wallet: there is no coin slot to load.
+        if (this.wallet.direct) throw new Error("not enough SOL in your wallet for this trade");
+        // Empty coin slot: the wallet signs one top-up, the swap itself signs silently.
         if (!this.wallet.topUp) {
           this.wallet.connect?.();
           throw new Error("empty coin slot - pick a wallet to load a coin");
@@ -359,6 +515,7 @@ export class MemeDash {
       const sig = await this.wallet.sweep();
       this.wallet.onTx?.("cash out", sig);
       this.coinBal = BigInt(0);
+      if (!this.wallet.direct) this.pos = null; // an open trade went back to the wallet as coins
     });
   }
 
@@ -367,14 +524,17 @@ export class MemeDash {
     if (!p) return;
     this.run("SELLING", async () => {
       // Sell the balance the wallet actually holds, not the quote estimate.
-      const held = this.wallet.tokenBalance ? await this.wallet.tokenBalance(p.coin.mint) : p.tokens;
+      const have = this.wallet.tokenBalance ? await this.wallet.tokenBalance(p.coin.mint) : p.tokens;
+      // From the player's own wallet, sell only what this trade bought: never coins they already owned.
+      const held = this.wallet.direct && have > p.tokens ? p.tokens : have;
       if (held <= BigInt(0)) throw new Error(`no ${p.coin.symbol} in the coin purse yet - wait a few seconds and press A again`);
       const before = this.wallet.solBalance ? await this.wallet.solBalance() : null;
       const { sig } = this.devnet
         ? await this.wallet.devSwap!(DEV_USDC_MINT, held)
         : await this.jupSwap(p.coin.mint, SOL_MINT, held);
       this.wallet.onTx?.(`sell ${p.coin.symbol}`, sig);
-      // The result is the SOL that really landed (minus fees), priced in USD - not an estimate.
+      this.lastSellSig = sig;
+      // The result is the SOL that landed (minus fees), priced in USD - not an estimate.
       let usdOut: number | null = null;
       if (before !== null && this.wallet.solBalance && this.sol) {
         for (let i = 0; i < 12; i++) {
@@ -388,7 +548,7 @@ export class MemeDash {
       }
       const usd = usdOut ?? p.usd * (this.live(p.coin) / p.entry); // live-price estimate if the read lags
       const pnl = usd - p.usd;
-      this.result = { text: pnl >= 0 ? "NICE CATCH!" : "OUCH!", pnl, pct: usd / p.usd - 1, why };
+      this.result = { text: pnl >= 0 ? "NICE CATCH!" : "OUCH!", pnl, pct: usd / p.usd - 1, why, coin: p.coin };
       this.pos = null;
       this.scene = "result";
       this.coinBal = null;
@@ -412,6 +572,7 @@ export class MemeDash {
     if (this.scene !== "loading" && now - this.lastPoll > 4000) {
       this.lastPoll = now;
       void this.pollPrices().catch(() => {});
+      this.keepAwake(!!this.pos);
     }
     if (this.scene !== "loading" && now - this.lastBal > 5000) {
       this.lastBal = now;
@@ -435,7 +596,9 @@ export class MemeDash {
 
     // the safety net and the treasure line sell on their own: nobody has to watch the chart
     if (this.pos && !this.busy) {
-      const reason = autoSellAt(this.live(this.pos.coin) / this.pos.entry - 1);
+      const lv = this.live(this.pos.coin);
+      // no price yet (a restored trade before the first poll) must never read as a -100% crash
+      const reason = lv > 0 ? autoSellAt(lv / this.pos.entry - 1) : null;
       if (reason) this.sell(reason);
     }
 
@@ -481,6 +644,11 @@ export class MemeDash {
         }
         break;
       case "result":
+        // UP dares a friend to beat this trade on the same coin
+        if (up && this.result) {
+          const r = this.result;
+          this.wallet.shareDuel?.({ mint: r.coin.mint, symbol: r.coin.symbol, pct: r.pct, sig: this.lastSellSig });
+        }
         if (a) this.scene = "chart";
         if (b) this.scene = "pick";
         break;
@@ -547,7 +715,7 @@ export class MemeDash {
   }
 
   private modeTag(): void {
-    this.pill(MEME_W - 230, 13, 216, 44, this.devnet ? C.down : C.real);
+    this.pill(MEME_W - 230, 13, 216, 44, this.devnet ? C.down : C.accent);
     this.text(this.devnet ? "DEVNET" : "MAINNET", MEME_W - 122, 35, 21, C.bg, "center");
   }
 
@@ -584,7 +752,7 @@ export class MemeDash {
     g.beginPath();
     g.roundRect(x, y - 8, w, h + 16, 18);
     g.fill();
-    // price scale on the right: four gridlines with real prices
+    // price scale on the right: four gridlines with prices from the feed
     g.font = `24px ${fontFam("body")}`;
     g.textAlign = "right";
     g.textBaseline = "middle";
@@ -700,8 +868,15 @@ export class MemeDash {
         this.pill(MEME_W - 150, 96, 118, 38, C.gold);
         this.text(`FOMO #${this.idx}`, MEME_W - 91, 115, 19, C.ink, "center", 800);
       }
-      this.text("Your play key signs every trade", MEME_W / 2, 494, 23, C.real, "center", 600);
-      const slot = this.coinBal === null ? "COIN SLOT ..." : `COIN SLOT ${(Number(this.coinBal) / 1e9).toFixed(3)} SOL - ALL IT CAN SPEND`;
+      const duel = this.duelFor(c);
+      if (duel) {
+        this.pill(24, 96, 344, 38, C.gold);
+        this.text(`DUEL: BEAT ${duel.name}'S ${fmtPct(duel.pct)}`, 196, 115, 19, C.ink, "center", 800);
+      }
+      const direct = !!this.wallet.direct;
+      this.text(duel ? "Same coin, best trade wins. No bets." : direct ? "Your wallet signs every trade" : "Your play key signs every trade", MEME_W / 2, 494, 23, C.accent, "center", 600);
+      const sol = this.coinBal === null ? "..." : `${(Number(this.coinBal) / 1e9).toFixed(3)} SOL`;
+      const slot = direct ? `YOUR WALLET ${sol}` : this.coinBal === null ? "COIN SLOT ..." : `COIN SLOT ${sol} - ALL IT CAN SPEND`;
       this.text(slot, MEME_W / 2, 520, 20, this.coinBal === BigInt(0) ? C.down : C.dim, "center", 600);
       this.text("◀ ▶ coins  A pick  X cash out  B back", MEME_W / 2, 550, 21, C.dim, "center", 600);
     }
@@ -711,6 +886,11 @@ export class MemeDash {
       this.text(`$${c.symbol}`, 86, 88, 20, C.ink, "left", 400, "title");
       const live = this.live(c);
       this.text(`$${fmtPrice(live)}`, 86, 118, 22, C.dim, "left", 600);
+      const duel = this.duelFor(c);
+      if (duel && this.scene === "chart") {
+        this.pill(MEME_W - 300, 80, 276, 40, C.gold);
+        this.text(`BEAT ${duel.name}: ${fmtPct(duel.pct)}`, MEME_W - 162, 100, 19, C.ink, "center", 800);
+      }
       this.chart(20, 142, MEME_W - 40, 250);
       const pos = this.pos;
       if (pos) {
@@ -721,7 +901,7 @@ export class MemeDash {
         this.text(`${pct >= 0 ? "+" : ""}${(pct * 100).toFixed(1)}% on your ${fmtUsd(pos.usd)}`, 152, 494, 24, C.dim, "left", 600);
         this.pill(MEME_W - 258, 428, 238, 84, C.down);
         this.text("A / B  SELL", MEME_W - 139, 470, 34, C.ink, "center");
-        this.text("Safety net sells at -8%. Treasure sells at +15%.", MEME_W / 2, 546, 20, C.dim, "center", 600);
+        this.text("Keep this screen open: it sells for you at -8% or +15%.", MEME_W / 2, 546, 20, C.dim, "center", 600);
       } else if (this.scene === "chart") {
         this.text("How much?", 24, 434, 24, C.dim, "left", 600);
         this.stakes.forEach((s, i) => {
@@ -735,7 +915,6 @@ export class MemeDash {
             this.text(`$${s.usd}`, px + 33, 479, 26, sel ? C.bg : C.ink, "center");
           }
         });
-        const stake = this.stakes[this.stakeIdx]!;
         if (this.confirmBig) {
           this.pill(MEME_W - 182, 432, 158, 84, C.down);
           this.text("SURE?", MEME_W - 103, 462, 30, C.bg, "center");
@@ -744,7 +923,7 @@ export class MemeDash {
           this.pill(MEME_W - 182, 432, 158, 84, C.up);
           this.text("A  BUY", MEME_W - 103, 474, 36, C.bg, "center");
         }
-        this.text("▲▼ amount   A buy   B coins", MEME_W / 2, 546, 20, C.dim, "center", 600);
+        this.text(`▲▼ amount   A buy   B coins${FEE_ACCOUNT && !this.devnet ? `   ${FEE_BPS / 100}% fee per trade` : ""}`, MEME_W / 2, 546, 20, C.dim, "center", 600);
       }
     }
 
@@ -756,7 +935,13 @@ export class MemeDash {
       this.text(r.why, MEME_W / 2, 284, 30, C.dim, "center", 700);
       this.text(r.text, MEME_W / 2, 336, 34, C.ink, "center", 400, "title");
       this.text(`${r.pnl >= 0 ? "+" : ""}${fmtUsd(r.pnl)}  (${r.pct >= 0 ? "+" : ""}${(r.pct * 100).toFixed(1)}%)`, MEME_W / 2, 402, 42, r.pnl >= 0 ? C.up : C.down, "center");
-      this.text("A trade again   B pick a coin", MEME_W / 2, 484, 24, C.dim, "center", 600);
+      const duel = this.duelFor(r.coin);
+      if (duel) {
+        const won = beatsDuel(r.pct, duel.pct);
+        this.text(won ? `YOU BEAT ${duel.name} (${fmtPct(duel.pct)})` : `${duel.name} STILL LEADS (${fmtPct(duel.pct)})`, MEME_W / 2, 446, 26, won ? C.up : C.down, "center", 800);
+      }
+      this.text("A trade again   B pick a coin", MEME_W / 2, 490, 24, C.dim, "center", 600);
+      if (this.wallet.shareDuel) this.text("▲ dare a friend to beat this trade", MEME_W / 2, 526, 22, C.accent, "center", 600);
     }
 
     if (this.busy) {
@@ -764,6 +949,7 @@ export class MemeDash {
       g.fillRect(0, 0, MEME_W, MEME_H);
       this.text(this.busy + ".".repeat(1 + (Math.floor(this.t / 10) % 3)), MEME_W / 2, MEME_H / 2 - 20, 34, C.ink, "center");
       if (this.busy.includes("COIN")) this.text("Approve the top-up in your wallet", MEME_W / 2, MEME_H / 2 + 30, 24, C.dim, "center", 600);
+      else if (this.wallet.direct && (this.busy === "BUYING" || this.busy === "SELLING")) this.text("Approve it in your wallet", MEME_W / 2, MEME_H / 2 + 30, 24, C.dim, "center", 600);
     }
     if (this.error) {
       g.fillStyle = "rgba(244,241,255,0.94)";

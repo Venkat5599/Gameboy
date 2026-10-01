@@ -1,5 +1,5 @@
 /**
- * The real SOL price for the chart and the round, from Coinbase's public market data
+ * The SOL price for the chart and the round, from Coinbase's public market data
  * (keyless, browser-callable). Pyth Hermes now requires a key and the mainnet public RPC
  * blocks browsers, so this is the honest free source. The screen always names it.
  */

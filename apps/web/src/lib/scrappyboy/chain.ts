@@ -64,7 +64,7 @@ export interface Creature {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Retry public-RPC rate limits (HTTP 429) with backoff; anything else is a real error. */
+/** Retry public-RPC rate limits (HTTP 429) with backoff; anything else is an error to surface. */
 export async function withRetry<T>(fn: () => Promise<T>, tries = 5): Promise<T> {
   for (let i = 0; ; i++) {
     try {
@@ -81,6 +81,11 @@ export async function withRetry<T>(fn: () => Promise<T>, tries = 5): Promise<T> 
  * Sign, send, and confirm by polling over HTTP. Websocket confirmation hangs on the public
  * devnet endpoint and on some mobile networks, so we never depend on it.
  */
+/** Sign, send, and confirm arbitrary instructions (used by the arcade program client). */
+export async function sendIxs(signer: TransactionSigner, instructions: Instruction[]): Promise<string> {
+  return send(signer, instructions);
+}
+
 async function send(signer: TransactionSigner, instructions: Instruction[]): Promise<string> {
   const { value: blockhash } = await withRetry(() => rpc.getLatestBlockhash().send());
   const msg = pipe(

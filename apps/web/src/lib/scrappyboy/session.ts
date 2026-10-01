@@ -1,10 +1,14 @@
 import { createKeyPairSignerFromBytes, type TransactionSigner } from "@solana/kit";
-import { Connection, Keypair, PublicKey, SystemProgram, Transaction, VersionedTransaction } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, VersionedTransaction } from "@solana/web3.js";
+
+const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const TOKEN_2022_PROGRAM = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+const ATA_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
 /**
  * The play key: an ephemeral keypair minted on this device the first time the console boots.
  *
- * It is the game's scoped session key. The player's real wallet signs exactly one transaction -
+ * It is the game's scoped session key. The player's own wallet signs exactly one transaction -
  * the top-up - and from then on every move (devnet LP ops, mainnet meme swaps, auto-sells) is
  * signed on-device by the play key. Hard scope: it can only ever spend what was deposited into
  * the coin slot. A kid's phrase for it is "the coins in the machine"; on-chain it is a fresh
@@ -69,11 +73,86 @@ export class SessionWallet {
     return accs.value.reduce((sum, a) => sum + BigInt((a.account.data.parsed.info.tokenAmount as { amount: string }).amount), BigInt(0));
   }
 
-  /** Cash out: everything in the coin slot (minus fee) back to the player's real wallet. The play key signs. */
+  /**
+   * Send every token the play key holds to the wallet's own token account (created if missing):
+   * an open meme position, SKR, anything a swap left behind. Returns the last signature, or null.
+   */
+  private async sweepTokens(conn: Connection, to: PublicKey): Promise<string | null> {
+    const me = this.keypair.publicKey;
+    let last: string | null = null;
+    for (const program of [TOKEN_PROGRAM, TOKEN_2022_PROGRAM]) {
+      const accs = await conn.getParsedTokenAccountsByOwner(me, { programId: program });
+      for (const a of accs.value) {
+        const info = a.account.data.parsed.info as { mint: string; tokenAmount: { amount: string; decimals: number } };
+        const amount = BigInt(info.tokenAmount.amount);
+        if (amount <= BigInt(0)) continue;
+        const mint = new PublicKey(info.mint);
+        const [dest] = PublicKey.findProgramAddressSync([to.toBuffer(), program.toBuffer(), mint.toBuffer()], ATA_PROGRAM);
+        const data = new Uint8Array(10);
+        data[0] = 12; // TransferChecked: works for both token programs
+        new DataView(data.buffer).setBigUint64(1, amount, true);
+        data[9] = info.tokenAmount.decimals;
+        const tx = new Transaction().add(
+          // create the wallet's token account if it does not exist yet (idempotent)
+          new TransactionInstruction({
+            programId: ATA_PROGRAM,
+            data: Buffer.from([1]),
+            keys: [
+              { pubkey: me, isSigner: true, isWritable: true },
+              { pubkey: dest, isSigner: false, isWritable: true },
+              { pubkey: to, isSigner: false, isWritable: false },
+              { pubkey: mint, isSigner: false, isWritable: false },
+              { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+              { pubkey: program, isSigner: false, isWritable: false },
+            ],
+          }),
+          new TransactionInstruction({
+            programId: program,
+            data: Buffer.from(data),
+            keys: [
+              { pubkey: a.pubkey, isSigner: false, isWritable: true },
+              { pubkey: mint, isSigner: false, isWritable: false },
+              { pubkey: dest, isSigner: false, isWritable: true },
+              { pubkey: me, isSigner: true, isWritable: false },
+            ],
+          }),
+        );
+        // close the emptied account so its rent comes back too (classic token program only)
+        if (program.equals(TOKEN_PROGRAM)) {
+          tx.add(
+            new TransactionInstruction({
+              programId: program,
+              data: Buffer.from([9]),
+              keys: [
+                { pubkey: a.pubkey, isSigner: false, isWritable: true },
+                { pubkey: me, isSigner: false, isWritable: true },
+                { pubkey: me, isSigner: true, isWritable: false },
+              ],
+            }),
+          );
+        }
+        tx.feePayer = me;
+        tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
+        tx.sign(this.keypair);
+        last = await conn.sendRawTransaction(tx.serialize());
+        await confirm(conn, last);
+      }
+    }
+    return last;
+  }
+
+  /**
+   * Cash out: everything the play key holds goes back to the player's own wallet. Tokens first,
+   * then the SOL (minus the fee). The play key signs.
+   */
   async sweep(conn: Connection, to: PublicKey): Promise<string> {
+    const tokenSig = await this.sweepTokens(conn, to);
     const bal = await conn.getBalance(this.keypair.publicKey);
     const amount = BigInt(bal) - TX_FEE;
-    if (amount <= BigInt(0)) throw new Error("coin slot is empty");
+    if (amount <= BigInt(0)) {
+      if (tokenSig) return tokenSig;
+      throw new Error("coin slot is empty");
+    }
     const tx = new Transaction().add(
       SystemProgram.transfer({ fromPubkey: this.keypair.publicKey, toPubkey: to, lamports: amount }),
     );

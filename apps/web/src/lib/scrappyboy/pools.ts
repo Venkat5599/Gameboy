@@ -3,7 +3,7 @@ import { type Address, address } from "@solana/kit";
 /**
  * The world map: every playable Orca pool on devnet, from Orca's own pool API.
  * Playable = SOL paired with a dollar or euro stablecoin, with liquidity in it.
- * Each pin is placed by two scores computed from real pool data only:
+ * Each pin is placed by two scores computed from pool data only:
  *   safety: how deep the pool is (TVL), how gentle its fee tier is, and how solid its quote coin is
  *   heat:   how busy it is (24h volume against TVL)
  * Nothing is invented: a pool with no volume data simply has zero heat.

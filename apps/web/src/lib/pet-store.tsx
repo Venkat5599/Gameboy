@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 /**
- * Local pet state. Everything here is real user input or real elapsed time.
+ * Local pet state. Everything here is user input or elapsed time.
  * Earnings, jobs and ranks come from the API once it is live; until then they are
  * honestly zero / empty, never invented.
  */
@@ -52,9 +52,9 @@ export type PetRecord = {
   /** set once the owner registers a payout wallet with the Human API */
   workerId?: string;
   payoutAddress?: string;
-  /** the owner's real pet photo, cropped square (JPEG data URL). Stays on this phone. */
+  /** the owner's own pet photo, cropped square (JPEG data URL). Stays on this phone. */
   face?: string;
-  /** real earnings from the API (owed + paid), in USDC */
+  /** earnings from the API (owed + paid), in USDC */
   earnedUsdc?: number;
   name: string;
   languages: Language[];
@@ -166,7 +166,7 @@ export const STAGES: { id: PetStage; name: string; jobs: number; days: number }[
   { id: "blossom", name: "Blossom", jobs: 200, days: 14 },
 ];
 
-/** Evolution is earned: only real jobs and real days alive count. */
+/** Evolution is earned: only finished jobs and days alive count. */
 export function stageFor(pet: PetRecord, now = Date.now()) {
   const days = (now - pet.bornAt) / 86_400_000;
   let i = 0;

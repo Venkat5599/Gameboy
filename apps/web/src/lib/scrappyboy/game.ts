@@ -1,4 +1,5 @@
-import type { TransactionSigner } from "@solana/kit";
+import { type TransactionSigner } from "@solana/kit";
+import * as arcade from "./arcade";
 import { BTN_A, BTN_B, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_UP, type Console, Image } from "@/lib/console";
 import * as chain from "./chain";
 import { type MapPool, mapPools, nextPin } from "./pools";
@@ -8,10 +9,10 @@ import { SPRITES } from "./sprites";
 import { MemeDash, type MemeWallet } from "./meme";
 
 /**
- * SCRAPPY BOY. An endless arcade round on the REAL live SOL price: your creature rides the price line,
+ * SCRAPPY BOY. An endless arcade round on the live SOL price: your creature rides the price line,
  * you steer the net to keep it inside, catch pearls, dodge jellyfish, build combos. Points are points,
- * never money. After a good run you can put a real net (an Orca liquidity position on devnet, signed by
- * your own wallet) into the sea: the same skill, now earning real fees.
+ * never money. After a good run you can put a net (an Orca liquidity position on devnet, signed by
+ * your own wallet) into the sea: the same skill, now earning pool fees.
  */
 
 export const SCREEN_W = 160;
@@ -19,7 +20,7 @@ export const SCREEN_H = 144;
 const FPS = 30;
 const HATCH_SOL = 0.2;
 const FED = BigInt(250_000_000);
-const PX_PER_FRAME = 0.5; // the price line scrolls ~15 px/s: about 9 s of real price on screen
+const PX_PER_FRAME = 0.5; // the price line scrolls ~15 px/s: about 9 s of price on screen
 const CREATURE_X = 100;
 const LEVEL_FRAMES = FPS * 20;
 
@@ -433,7 +434,7 @@ export class ScrappyBoy {
     if (!this.feedOk) return; // never play on a guessed price
     this.roundF++;
 
-    // price display eases toward the latest real tick
+    // price display eases toward the latest tick
     this.shown += (this.live - this.shown) * 0.12;
     this.scroll += PX_PER_FRAME;
     while (this.scroll >= 1) {
@@ -441,7 +442,7 @@ export class ScrappyBoy {
       this.trail.push(this.shown);
       if (this.trail.length > SCREEN_W) this.trail.shift();
     }
-    // zoom the window to recent movement so real micro-moves are visible, but never flatter than 0.06%
+    // zoom the window to recent movement so small moves are visible, but never flatter than 0.06%
     const recent = this.trail.slice(-120);
     const mn = Math.min(...recent);
     const mx = Math.max(...recent);
@@ -520,7 +521,7 @@ export class ScrappyBoy {
     }
     this.things = this.things.filter((th) => th.x > -12);
 
-    // WHALE WAVE: a real sharp move in the last ~5 s doubles points for 5 s
+    // WHALE WAVE: a sharp move in the last ~5 s doubles points for 5 s
     const past = this.samples.find((s) => s.f >= this.t - FPS * 5);
     if (past && this.whaleF === 0 && Math.abs(this.live - past.p) / past.p > 0.0008) {
       this.whaleF = FPS * 5;
@@ -572,8 +573,24 @@ export class ScrappyBoy {
       this.best = this.score;
       this.newBest = true;
       saveBest(this.best);
+      this.sealBest();
     }
     this.streak = bumpStreak();
+  }
+
+  private arcadeLive: boolean | null = null;
+
+  /** SEAL BEST: the new record lands on the chain, signed by the play key. */
+  private sealBest(): void {
+    const signer = this.signer;
+    if (!signer || this.best <= 0) return;
+    const score = this.best;
+    this.bg(async () => {
+      if (this.arcadeLive === null) this.arcadeLive = await arcade.programDeployed();
+      if (!this.arcadeLive) return; // not deployed on this cluster yet: stay quiet
+      const sig = await arcade.recordScore(signer, signer.address, score);
+      this.events.onTx?.("seal best on chain", sig);
+    });
   }
 
   // ---- update ----------------------------------------------------------------------
@@ -592,7 +609,7 @@ export class ScrappyBoy {
     const left = inp.btnp(BTN_LEFT);
     const right = inp.btnp(BTN_RIGHT);
 
-    // a real price tick every second on every screen after boot
+    // a price tick every second on every screen after boot
     if (this.scene !== "boot" && this.scene !== "insert" && this.t % FPS === 0) {
       this.bg(async () => {
         try {
@@ -827,7 +844,7 @@ export class ScrappyBoy {
     s.line(0, bot, SCREEN_W, bot, inside ? (whale ? GOLD : MINT) : PINK);
     for (let x = 6 - (Math.floor(this.roundF / 2) % 16); x < SCREEN_W; x += 16) s.circ(x, top, 1, ORANGE);
 
-    // the real price line
+    // the price line
     const n = this.trail.length;
     for (let i = 1; i < n; i++) {
       const x0 = CREATURE_X + 5 - (n - i);
@@ -898,7 +915,7 @@ export class ScrappyBoy {
         CREATURES.forEach((c, i) => this.sprite(26 + i * 40, 70 + Math.round(Math.sin((this.t + i * 20) / 10) * 3), c.sx, 2, i === 2));
         if (this.t % 30 < 20) this.center(104, "PRESS A", WHITE);
         if (this.beat) this.center(116, `BEAT ${this.vsName || "A FRIEND"}'S ${this.beat}!`, this.t % 30 < 20 ? GOLD : ORANGE);
-        else if (this.best) this.center(116, `BEST `, GOLD);
+        else if (this.best) this.center(116, `BEST ${this.best}`, GOLD);
         s.rect(0, SCREEN_H - 8, SCREEN_W, 8, SAND);
         break;
       }

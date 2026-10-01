@@ -6,7 +6,7 @@ import { stageFor, type PetRecord } from "@/lib/pet-store";
 
 type Milestone = { label: string; done: boolean; x: number; y: number };
 
-/** Real goals computed from the pet record. Nothing here is invented progress. */
+/** Goals computed from the pet record. Nothing here is invented progress. */
 function milestones(pet: PetRecord): Milestone[] {
   const ageDays = (Date.now() - pet.bornAt) / 86_400_000;
   return [

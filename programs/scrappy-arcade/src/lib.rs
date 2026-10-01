@@ -1,18 +1,25 @@
 use anchor_lang::prelude::*;
+use session_keys::{session_auth_or, Session, SessionError, SessionToken};
 
 declare_id!("6JWs3RjaawXTHvjFmFq2UxWiX8HPpxfi71WsGeLqVXm3");
 
 /// SCRAPPY BOY arcade program.
 ///
 /// The SAVE CARD is on-chain for real: a PDA per player that keeps best score,
-/// last score and total runs. The play key signs writes itself, or a delegated
-/// session signer writes on the player's behalf once the wallet has issued a
-/// scoped, expiring session PDA - the pattern MagicBlock session keys formalize.
+/// last score and total runs. Score writes accept either the player's own key
+/// or a MagicBlock session token (`session-keys` crate): the wallet issues a
+/// scoped, expiring SessionToken for a device key, and that key writes on the
+/// player's behalf with zero further popups.
 #[program]
 pub mod scrappy_arcade {
     use super::*;
 
-    /// The player's own key writes their save card. First write creates it.
+    /// Write a score to the player's save card. First write creates it.
+    /// Signs with the player's key, or a session delegate's key + SessionToken.
+    #[session_auth_or(
+        ctx.accounts.player.key() == ctx.accounts.signer.key(),
+        SessionError::InvalidToken
+    )]
     pub fn record_score(ctx: Context<RecordScore>, score: u32) -> Result<()> {
         let card = &mut ctx.accounts.save_card;
         card.player = ctx.accounts.player.key();
@@ -20,40 +27,12 @@ pub mod scrappy_arcade {
         write_score(card, score)
     }
 
-    /// A session delegate writes on the player's behalf.
-    /// The Session PDA must exist, match player + delegate, and be unexpired.
-    /// This is the scoped path the game uses after one wallet signature.
-    pub fn record_score_as(ctx: Context<RecordScoreAs>, score: u32) -> Result<()> {
-        let session = &ctx.accounts.session;
-        require_keys_eq!(session.player, ctx.accounts.player.key(), ArcadeError::WrongPlayer);
-        require_keys_eq!(session.delegate, ctx.accounts.delegate.key(), ArcadeError::WrongDelegate);
-        require!(session.expires_at_slot > Clock::get()?.slot, ArcadeError::SessionExpired);
-        write_score(&mut ctx.accounts.save_card, score)
-    }
-
-    /// The real wallet delegates writes to a device key for a bounded time.
-    pub fn authorize_session(ctx: Context<AuthorizeSession>, delegate: Pubkey, ttl_slots: u64) -> Result<()> {
-        let session = &mut ctx.accounts.session;
-        session.player = ctx.accounts.player.key();
-        session.delegate = delegate;
-        session.expires_at_slot = Clock::get()?.slot + ttl_slots;
-        session.bump = ctx.bumps.session;
-        Ok(())
-    }
-
-    /// The wallet revokes a delegate early; the PDA rent returns to the wallet.
-    pub fn revoke_session(ctx: Context<RevokeSession>, delegate: Pubkey) -> Result<()> {
-        let session = &ctx.accounts.session;
-        require_keys_eq!(session.delegate, delegate, ArcadeError::WrongDelegate);
-        Ok(())
-    }
-
     // ---- link battles ------------------------------------------------------
     //
     // A Battle PDA `[b"battle", id]` is the shared scoreboard: the host creates
     // it, a friend joins with a link, both post one score, and the contract
-    // settles the winner. Posting uses either key path - the player's own key
-    // or an unexpired session delegate - so a device play key can battle.
+    // records the result. Score posts accept a seat's own key or a session
+    // delegate, so a device play key can battle without a wallet popup.
 
     pub fn create_battle(ctx: Context<CreateBattle>, battle_id: u64) -> Result<()> {
         let b = &mut ctx.accounts.battle;
@@ -73,7 +52,12 @@ pub mod scrappy_arcade {
         Ok(())
     }
 
-    /// One score post per seat. Slot is decided by which key signed.
+    /// One score post per seat. The seat is `who`; the submitter is either the
+    /// seat itself or its session delegate.
+    #[session_auth_or(
+        ctx.accounts.who.key() == ctx.accounts.signer.key(),
+        SessionError::InvalidToken
+    )]
     pub fn post_battle_score(ctx: Context<PostBattleScore>, _battle_id: u64, score: u32) -> Result<()> {
         let b = &mut ctx.accounts.battle;
         let who = ctx.accounts.who.key();
@@ -102,71 +86,27 @@ fn write_score(card: &mut Account<SaveCard>, score: u32) -> Result<()> {
     Ok(())
 }
 
-#[derive(Accounts)]
+#[derive(Accounts, Session)]
 pub struct RecordScore<'info> {
     #[account(
         init_if_needed,
-        payer = player,
+        payer = signer,
         space = 8 + SaveCard::INIT_SPACE,
         seeds = [b"save_card", player.key().as_ref()],
         bump,
     )]
     pub save_card: Account<'info, SaveCard>,
-    #[account(mut)]
-    pub player: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct RecordScoreAs<'info> {
-    #[account(
-        init_if_needed,
-        payer = delegate,
-        space = 8 + SaveCard::INIT_SPACE,
-        seeds = [b"save_card", player.key().as_ref()],
-        bump,
-    )]
-    pub save_card: Account<'info, SaveCard>,
-    /// CHECK: the player this score belongs to. Not a signer; the session PDA vouches.
+    /// CHECK: the player this card belongs to. Vouched by the signer directly or
+    /// by the session token's authority.
     pub player: AccountInfo<'info>,
-    #[account(mut)]
-    pub delegate: Signer<'info>,
-    #[account(
-        seeds = [b"session", player.key().as_ref(), delegate.key().as_ref()],
-        bump = session.bump,
+    #[session(
+        signer = signer,
+        authority = player.key()
     )]
-    pub session: Account<'info, Session>,
+    pub session_token: Option<Account<'info, SessionToken>>,
+    #[account(mut)]
+    pub signer: Signer<'info>,
     pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-#[instruction(delegate: Pubkey)]
-pub struct AuthorizeSession<'info> {
-    #[account(
-        init_if_needed,
-        payer = player,
-        space = 8 + Session::INIT_SPACE,
-        seeds = [b"session", player.key().as_ref(), delegate.as_ref()],
-        bump,
-    )]
-    pub session: Account<'info, Session>,
-    #[account(mut)]
-    pub player: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-#[instruction(delegate: Pubkey)]
-pub struct RevokeSession<'info> {
-    #[account(
-        mut,
-        close = player,
-        seeds = [b"session", player.key().as_ref(), delegate.as_ref()],
-        bump = session.bump,
-    )]
-    pub session: Account<'info, Session>,
-    #[account(mut)]
-    pub player: Signer<'info>,
 }
 
 #[account]
@@ -208,7 +148,7 @@ pub struct JoinBattle<'info> {
     pub guest: Signer<'info>,
 }
 
-#[derive(Accounts)]
+#[derive(Accounts, Session)]
 #[instruction(battle_id: u64)]
 pub struct PostBattleScore<'info> {
     #[account(
@@ -217,16 +157,15 @@ pub struct PostBattleScore<'info> {
         bump = battle.bump,
     )]
     pub battle: Account<'info, Battle>,
-    pub who: Signer<'info>,
-}
-
-#[account]
-#[derive(InitSpace)]
-pub struct Session {
-    pub player: Pubkey,
-    pub delegate: Pubkey,
-    pub expires_at_slot: u64,
-    pub bump: u8,
+    /// CHECK: the seat this score is for. Vouched by signer or session authority.
+    pub who: AccountInfo<'info>,
+    #[session(
+        signer = signer,
+        authority = who.key()
+    )]
+    pub session_token: Option<Account<'info, SessionToken>>,
+    #[account(mut)]
+    pub signer: Signer<'info>,
 }
 
 #[account]
@@ -242,12 +181,6 @@ pub struct Battle {
 
 #[error_code]
 pub enum ArcadeError {
-    #[msg("session PDA player does not match")]
-    WrongPlayer,
-    #[msg("session PDA delegate does not match")]
-    WrongDelegate,
-    #[msg("session has expired")]
-    SessionExpired,
     #[msg("play counter overflowed")]
     Overflow,
     #[msg("battle already has a guest")]

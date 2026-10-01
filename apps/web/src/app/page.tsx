@@ -39,7 +39,7 @@ export default function Home() {
             <span className="block text-white [text-shadow:0_2px_14px_rgba(15,50,90,0.45)]">So we made it a game.</span>
           </h1>
           <p className="mx-auto mt-6 max-w-xl text-[18px] font-semibold leading-relaxed text-navy-text">
-            A pocket arcade where the buttons do your Solana trades. Play free — drop in a coin when you want the wins to be yours.
+            A pocket arcade where the buttons do your Solana trades. Play free. Connect a wallet when you want to trade.
           </p>
           <div className="mt-8 flex flex-col items-center gap-3">
             <PrimaryLink href="/scrappyboy?net=devnet">Play SCRAPPY BOY</PrimaryLink>
@@ -48,7 +48,7 @@ export default function Home() {
               <Arrow />
             </GlossButton>
             <span className="-mt-1 text-[13px] font-semibold text-navy-text">APK · 1 MB</span>
-            <span className="text-[14px] font-semibold text-navy-text">Free to play. No wallet until you put a coin in.</span>
+            <span className="text-[14px] font-semibold text-navy-text">Free to play. No wallet needed until you trade.</span>
           </div>
           <figure className="mt-10 w-full max-w-md rounded-2xl bg-ground-deep px-5 py-4 text-left shadow-[0_6px_16px_-8px_rgba(29,29,31,0.5)]">
             <figcaption className="text-[12px] text-ink-faint">How a round goes</figcaption>
@@ -65,11 +65,30 @@ export default function Home() {
         </div>
       </section>
 
+      {/* THE FILM: the whole idea in 49 seconds. The island is the film's own ink, so the frame has no visible edge. */}
+      <section id="film" className="scroll-mt-6 px-3 pt-16 sm:px-6 sm:pt-24">
+        <figure className="mx-auto max-w-6xl overflow-hidden rounded-[28px] bg-[#0e091c]">
+          <video
+            className="block aspect-video w-full"
+            controls
+            playsInline
+            preload="none"
+            poster="/scrappy-boy-poster.png"
+            aria-label="SCRAPPY BOY in 49 seconds: the jargon wall falls, the handheld boots, a round on the SOL price, a MEME DASH trade, a duel with a friend"
+          >
+            <source src="/scrappy-boy.mp4" type="video/mp4" />
+          </video>
+          <figcaption className="px-6 py-4 text-[14px] font-semibold text-on-night-soft sm:px-8">
+            SCRAPPY BOY in 49 seconds. Turn the sound on: the music is played by the console&rsquo;s own chip.
+          </figcaption>
+        </figure>
+      </section>
+
       {/* FOUR BUTTONS: jargon wall vs what we actually ask of you */}
       <section className="px-4 py-24 sm:px-8">
         <div className="mx-auto max-w-6xl">
           <h2 className="font-display tracking-[-0.005em] max-w-3xl text-[clamp(2rem,4vw,3.4rem)] font-bold leading-[1.04] tracking-[-0.015em]">
-            Trading apps have 47 buttons and a textbook of words. We have four buttons.
+            Trading apps hand you a textbook of words. We have four buttons.
           </h2>
           <div className="mt-14 grid gap-6 lg:grid-cols-[1.4fr_1fr]">
             <figure className="relative overflow-hidden rounded-3xl bg-white p-7 ring-1 ring-edge">
@@ -97,7 +116,7 @@ export default function Home() {
                   ["◀ ▶", "pick a coin"],
                   ["A", "buy"],
                   ["B", "sell"],
-                  ["X", "money back in your wallet"],
+                  ["▲", "dare a friend to beat your trade"],
                 ].map(([k, d]) => (
                   <li key={k} className="flex items-center gap-4">
                     <span className="grid size-11 shrink-0 place-items-center rounded-full bg-[#6e54ff] font-display text-[13px] font-bold text-white shadow-[0_3px_0_rgba(58,42,158,0.55)]">
@@ -107,7 +126,7 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
-              <p className="mt-5 text-[14px] font-semibold text-ink-soft">That is the whole interface. A five-year-old can use it.</p>
+              <p className="mt-5 text-[14px] font-semibold text-ink-soft">That is the whole interface. Your wallet approves each trade.</p>
             </figure>
           </div>
         </div>
@@ -154,8 +173,8 @@ export default function Home() {
           <figure className="mx-auto w-full max-w-sm rounded-2xl bg-night-raise p-6 ring-1 ring-white/5">
             <figcaption className="text-[12px] text-on-night-soft">After a run</figcaption>
             <Critter who="shelly" frame={1} className="hero-pet mx-auto mt-2 w-36" title="Shelly the turtle" />
-            <p className="mt-3 text-center font-display tracking-[-0.005em] text-2xl">1,240 points · combo x8</p>
-            <p className="mt-1 text-center text-[14px] text-on-night-soft">Price in the net 86% · then one tap to cast it for money</p>
+            <p className="mt-3 text-center font-display tracking-[-0.005em] text-2xl">Score · best combo · pearls</p>
+            <p className="mt-1 text-center text-[14px] text-on-night-soft">How long the price stayed in your net, then one tap to cast a net with money</p>
           </figure>
         </div>
       </section>
@@ -172,6 +191,10 @@ export default function Home() {
               <div>
                 <dt className="font-bold">Challenge links</dt>
                 <dd className="mt-1 text-ink-soft">Share your run as a card. Friends who open it see your score to beat, live in their round.</dd>
+              </div>
+              <div>
+                <dt className="font-bold">Trade duels</dt>
+                <dd className="mt-1 text-ink-soft">Finish a MEME DASH trade and dare a friend to beat it on the same coin. Everyone trades their own money. No bets, best trade wins.</dd>
               </div>
               <div>
                 <dt className="font-bold">A handheld in your pocket</dt>
@@ -196,7 +219,7 @@ export default function Home() {
   B  pull in     take your money back out
   A  buy coin    an actual coin, on Solana
 
-Signed on-device by your play key.`}
+Trades are approved in your own wallet.`}
           </pre>
         </div>
       </section>
@@ -206,7 +229,10 @@ Signed on-device by your play key.`}
           <p>
             <span className="font-display tracking-[-0.005em] text-[18px] text-ink">scrappypet</span> · home of SCRAPPY BOY · built on Solana
           </p>
-          <a href={REPO_URL} className="transition-colors hover:text-ink">Source on GitHub</a>
+          <p className="flex gap-5">
+            <a href={REPO_URL} className="transition-colors hover:text-ink">Source on GitHub</a>
+            <a href="/privacy" className="transition-colors hover:text-ink">Privacy and keys</a>
+          </p>
         </div>
       </footer>
     </main>

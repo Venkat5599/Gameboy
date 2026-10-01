@@ -38,7 +38,7 @@ export function Hatch() {
         <div>
           <p className="text-[14px] font-semibold text-ink-soft">Step 1 of 2</p>
           <h1 className="mt-1 font-display text-[clamp(2rem,4vw,2.9rem)] font-bold leading-[1.08]">Choose your first companion</h1>
-          <p className="mt-2 text-ink-soft">Every buddy grows through its own four forms as you do real work together.</p>
+          <p className="mt-2 text-ink-soft">Every buddy grows through its own four forms as you do work together.</p>
         </div>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">

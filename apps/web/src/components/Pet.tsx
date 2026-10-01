@@ -8,7 +8,7 @@ export type PetMood =
 export type PetDance =
   | "none" | "bounce" | "wiggle" | "hop" | "wave" | "march"
   | "spin" | "cheer" | "dizzy" | "shake" | "twirl" | "sway" | "peek";
-/** Evolution forms, unlocked by real work (see stageFor in pet-store). */
+/** Evolution forms, unlocked by work (see stageFor in pet-store). */
 export type PetStage = "sprout" | "mochi" | "bloom" | "blossom";
 export type Species = "mochi" | "neko" | "bun" | "kumo" | "pip" | "zap" | "kitsu" | "pengu" | "drako" | "goo" | "ember" | "boo";
 
@@ -49,7 +49,7 @@ type PetProps = {
   watchPointer?: boolean;
   className?: string;
   title?: string;
-  /** The owner's real pet photo (square data URL). Replaces the drawn face; the body, limbs and animations stay. */
+  /** The owner's own pet photo (square data URL). Replaces the drawn face; the body, limbs and animations stay. */
   face?: string;
 };
 
@@ -367,7 +367,7 @@ export function Pet({ mood = "happy", stage = "mochi", species = "mochi", dance 
 
         {face ? (
           <g transform={bodyT}>
-            {/* the owner's real pet, framed by the body's own colour so it reads as part of the creature */}
+            {/* the owner's own pet, framed by the body's own colour so it reads as part of the creature */}
             <g filter={dead ? `url(#${g("stone")})` : undefined}>
               <image
                 href={face}

@@ -8,7 +8,7 @@ const OUT = 320; // saved face size in px (square JPEG, a few dozen KB)
 const VIEW = 240; // crop circle on screen
 
 /**
- * Put your real pet's face on your Scrappy. Pick or take a photo, drag and zoom it into the circle,
+ * Put your own pet's face on your Scrappy. Pick or take a photo, drag and zoom it into the circle,
  * save. The photo is cropped on the phone and stays on the phone.
  */
 export function FacePicker() {
@@ -72,7 +72,7 @@ export function FacePicker() {
       <div className="flex flex-wrap items-center gap-4 rounded-[20px] bg-field p-4">
         <Pet species={species} face={pet?.face} mood="happy" dance="none" className="h-20 w-20" title={pet?.name ?? "Your pet"} />
         <div className="min-w-0 flex-1">
-          <p className="font-semibold">{pet?.face ? "Your real pet is fighting" : "Put your real pet's face on your Scrappy"}</p>
+          <p className="font-semibold">{pet?.face ? "Your own pet is fighting" : "Put your own pet's face on your Scrappy"}</p>
           <p className="text-[14px] text-ink-soft">The photo stays on this phone.</p>
           <div className="mt-2 flex gap-4">
             <button type="button" onClick={() => input.current?.click()} className="text-[15px] font-semibold text-[#007aff]">

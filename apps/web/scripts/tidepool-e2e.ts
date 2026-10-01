@@ -1,7 +1,7 @@
-// End-to-end proof on devnet: every game action is a real Orca transaction.
+// End-to-end proof on devnet: every game action is an Orca transaction on devnet.
 // Usage: bun scripts/tidepool-e2e.ts [path-to-keypair.json]
 import { createKeyPairSignerFromBytes, generateKeyPairSigner } from "@solana/kit";
-import { creatures, eat, explorer, foodInBowl, hatch, pickPool, release, solBalance, starterFood } from "../src/lib/tidepool/chain";
+import { creatures, eat, explorer, foodInBowl, hatch, pickPool, release, solBalance, starterFood } from "../src/lib/scrappyboy/chain";
 
 const keyPath = process.argv[2] ?? `${process.env.TMP ?? "/tmp"}/tidepool-e2e-key.json`;
 const file = Bun.file(keyPath);
