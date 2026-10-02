@@ -139,15 +139,18 @@ const C = {
   edge: "#0e091c",
 };
 
+/** VT323 reads about a quarter smaller than a sans at the same size: scale body copy up to match. */
+const BODY_SCALE = 1.28;
+
 /** The console's own typefaces, resolved from the CSS vars once the page loads. */
 const FONTS = { title: "", body: "" };
 export function fontFam(kind: "title" | "body"): string {
   if (!FONTS.body && typeof document !== "undefined") {
     const cs = getComputedStyle(document.documentElement);
     FONTS.title = cs.getPropertyValue("--font-pressstart").trim() || '"Press Start 2P", monospace';
-    FONTS.body = cs.getPropertyValue("--font-switzer").trim() || "system-ui, sans-serif";
+    FONTS.body = cs.getPropertyValue("--font-vt323").trim() || "VT323, monospace";
   }
-  return kind === "title" ? FONTS.title || "monospace" : FONTS.body || "system-ui, sans-serif";
+  return kind === "title" ? FONTS.title || "monospace" : FONTS.body || "monospace";
 }
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
@@ -664,7 +667,9 @@ export class MemeDash {
 
   private text(s: string, x: number, y: number, size: number, color: string, align: CanvasTextAlign = "left", weight = 800, kind: "title" | "body" = "body"): void {
     const g = this.g;
-    g.font = kind === "title" ? `${size}px ${fontFam("title")}` : `${weight} ${size}px ${fontFam("body")}`;
+    // The pixel face has one weight and a small body, so it is set larger and never synthesised bold.
+    void weight;
+    g.font = kind === "title" ? `${size}px ${fontFam("title")}` : `${Math.round(size * BODY_SCALE)}px ${fontFam("body")}`;
     g.textAlign = align;
     g.textBaseline = "middle";
     g.fillStyle = color;
@@ -753,7 +758,7 @@ export class MemeDash {
     g.roundRect(x, y - 8, w, h + 16, 18);
     g.fill();
     // price scale on the right: four gridlines with prices from the feed
-    g.font = `24px ${fontFam("body")}`;
+    g.font = `26px ${fontFam("body")}`;
     g.textAlign = "right";
     g.textBaseline = "middle";
     for (let i = 0; i <= 4; i++) {

@@ -1,4 +1,5 @@
 import { PALETTE, SPRITES } from "@/lib/scrappyboy/sprites";
+import { Parallax, PointerDrift } from "@/components/LandingMotion";
 
 const hex = (c: number) => `#${c.toString(16).padStart(6, "0")}`;
 
@@ -44,8 +45,18 @@ export function Critter({ who, frame = 0, flip = false, className, title }: { wh
   );
 }
 
+/** A creature that swims: both of its game frames stacked, swapped in steps by CSS. */
+export function Swimmer({ who, flip = false, className, title }: { who: Who; flip?: boolean; className?: string; title?: string }) {
+  return (
+    <div className={`swim relative ${className ?? ""}`} role={title ? "img" : undefined} aria-label={title} aria-hidden={title ? undefined : true}>
+      <Critter who={who} frame={0} flip={flip} className="swim-a block w-full" />
+      <Critter who={who} frame={1} flip={flip} className="swim-b absolute inset-0 w-full" />
+    </div>
+  );
+}
+
 /** A pearl: the thing you catch in the game. */
-function Pearl({ gold = false, className }: { gold?: boolean; className?: string }) {
+export function Pearl({ gold = false, className }: { gold?: boolean; className?: string }) {
   const body = gold ? hex(PALETTE[10]!) : hex(PALETTE[7]!);
   const shine = gold ? hex(PALETTE[7]!) : hex(PALETTE[6]!);
   return (
@@ -78,21 +89,20 @@ const SPOTS: Spot[] = [
 export function SeaCast() {
   return (
     <>
-      <div aria-hidden className="pointer-events-none absolute inset-0 hidden lg:block">
+      {/* the layer leans away from the pointer; each creature also drifts with scroll at a rate set by its size, so big ones feel near */}
+      <PointerDrift className="pointer-events-none absolute inset-0 hidden lg:block">
         {SPOTS.map((p, i) => (
-          <div
-            key={i}
-            className="hero-pet absolute"
-            style={{ top: p.top, left: p.left, width: p.size, rotate: `${p.rot}deg`, animationDuration: `${p.dur}s`, animationDelay: `${p.delay}s`, willChange: "transform" }}
-          >
-            {p.who === "pearl" || p.who === "gold" ? <Pearl gold={p.who === "gold"} className="w-full" /> : <Critter who={p.who} frame={p.frame} flip={p.flip} className="w-full" />}
-          </div>
+          <Parallax key={i} speed={-0.08 - (p.size / 140) * 0.3} className="absolute" style={{ top: p.top, left: p.left, width: p.size }}>
+            <div className="hero-pet" style={{ rotate: `${p.rot}deg`, animationDuration: `${p.dur}s`, animationDelay: `${p.delay}s` }}>
+              {p.who === "pearl" || p.who === "gold" ? <Pearl gold={p.who === "gold"} className="w-full" /> : <Swimmer who={p.who} flip={p.flip} className="w-full" />}
+            </div>
+          </Parallax>
         ))}
-      </div>
+      </PointerDrift>
       <div aria-hidden className="mb-4 flex items-end justify-center gap-4 lg:hidden">
         {(["shelly", "finn", "zip"] as const).map((w, i) => (
           <div key={w} className="hero-pet w-20" style={{ animationDelay: `${i * 0.3}s` }}>
-            <Critter who={w} className="w-full" />
+            <Swimmer who={w} className="w-full" />
           </div>
         ))}
       </div>

@@ -30,7 +30,9 @@ async function shareRun(screen: HTMLCanvasElement, run: { score: number; best: n
   const k = 6; // 160x144 -> 960x864
   g.drawImage(screen, (1080 - 160 * k) / 2, 40, 160 * k, 144 * k);
   g.fillStyle = "#e6fbf6";
-  g.font = "600 40px system-ui, sans-serif";
+  const face = getComputedStyle(document.documentElement).getPropertyValue("--font-vt323").trim() || "monospace";
+  if ("fonts" in document) await document.fonts.load(`52px ${face}`).catch(() => {});
+  g.font = `52px ${face}`;
   g.textAlign = "center";
   g.fillText(`Beat ${run.score} at scrappypet.vercel.app/scrappyboy`, 540, 1010);
   const blob: Blob | null = await new Promise((r) => card.toBlob(r, "image/png"));
