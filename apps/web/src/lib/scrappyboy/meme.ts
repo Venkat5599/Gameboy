@@ -15,6 +15,8 @@ export const MEME_H = 576;
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 const SKR_MINT = "SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3";
 const DEV_USDC_MINT = "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k";
+/** USDC's own mark, from the Solana token list. If it fails to load the picker falls back to the letter. */
+const USDC_ICON = "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png";
 /** Everything Jupiter says is hot today, minus money that isn't a meme. */
 const EXCLUDE = new Set(["SOL", "WSOL", "USDC", "USDT", "USD1", "PYUSD", "CBBTC", "WBTC", "ZEC", "PAXG", "JITOSOL", "JUP", "MSOL", "BSOL", "EURC", "LST"]);
 const MAX_COINS = 30;
@@ -335,7 +337,7 @@ export class MemeDash {
     this.scene = "loading";
     if (this.devnet) {
       // Devnet is one honest coin: devUSDC on the Orca devnet pool.
-      this.coins = [{ mint: DEV_USDC_MINT, symbol: "USDC", name: "devnet dollar", icon: null, decimals: 6, price: 1, change24h: 0 }];
+      this.coins = [{ mint: DEV_USDC_MINT, symbol: "USDC", name: "devnet dollar", icon: await loadImage(`/api/icon?u=${encodeURIComponent(USDC_ICON)}`), decimals: 6, price: 1, change24h: 0 }];
       this.idx = 0;
       await this.seatDuel();
       await this.restorePos();
@@ -676,6 +678,17 @@ export class MemeDash {
     g.fillText(s, x, y);
   }
 
+  /** A stepped pixel arrow for the coin picker: dir -1 points left, 1 points right. */
+  private arrow(cx: number, cy: number, dir: -1 | 1): void {
+    const g = this.g;
+    const u = 8; // one pixel of the arrow
+    g.fillStyle = C.dim;
+    for (let i = 0; i < 4; i++) {
+      const h = (7 - i * 2) * u;
+      g.fillRect(cx + dir * (i - 2) * u - (dir < 0 ? 0 : u), cy - h / 2, u, h);
+    }
+  }
+
   private pill(x: number, y: number, w: number, h: number, fill: string): void {
     const g = this.g;
     g.fillStyle = fill;
@@ -861,14 +874,15 @@ export class MemeDash {
     const c = this.coin;
     if (this.scene === "pick" && c) {
       const bob = Math.sin(this.t / 10) * 6;
-      this.logo(c, MEME_W / 2, 190 + bob, 96);
-      this.text("‹", 70, 190, 90, C.dim, "center", 400);
-      this.text("›", MEME_W - 70, 190, 90, C.dim, "center", 400);
-      this.text(`$${c.symbol}`, MEME_W / 2, 324, 34, C.ink, "center", 400, "title");
+      this.logo(c, MEME_W / 2, 186 + bob, 88);
+      // the pixel face has no chevrons worth showing: draw the arrows as shapes
+      this.arrow(70, 186, -1);
+      this.arrow(MEME_W - 70, 186, 1);
+      this.text(`$${c.symbol}`, MEME_W / 2, 310, 34, C.ink, "center", 400, "title");
       const upc = c.change24h >= 0;
-      this.pill(MEME_W / 2 - 170, 356, 340, 64, upc ? C.up : C.down);
-      this.text(`${upc ? "▲ UP" : "▼ DOWN"} ${Math.abs(c.change24h).toFixed(1)}% TODAY`, MEME_W / 2, 388, 28, C.bg, "center");
-      this.text(`$${fmtPrice(c.price)}`, MEME_W / 2, 452, 30, C.dim, "center", 600);
+      this.pill(MEME_W / 2 - 170, 338, 340, 60, upc ? C.up : C.down);
+      this.text(`${upc ? "▲ UP" : "▼ DOWN"} ${Math.abs(c.change24h).toFixed(1)}% TODAY`, MEME_W / 2, 368, 28, C.bg, "center");
+      this.text(`$${fmtPrice(c.price)}`, MEME_W / 2, 430, 30, C.dim, "center", 600);
       if (this.idx >= 1 && this.idx <= 3) {
         this.pill(MEME_W - 150, 96, 118, 38, C.gold);
         this.text(`FOMO #${this.idx}`, MEME_W - 91, 115, 19, C.ink, "center", 800);
@@ -879,11 +893,11 @@ export class MemeDash {
         this.text(`DUEL: BEAT ${duel.name}'S ${fmtPct(duel.pct)}`, 196, 115, 19, C.ink, "center", 800);
       }
       const direct = !!this.wallet.direct;
-      this.text(duel ? "Same coin, best trade wins. No bets." : direct ? "Your wallet signs every trade" : "Your play key signs every trade", MEME_W / 2, 494, 23, C.accent, "center", 600);
+      this.text(duel ? "Same coin, best trade wins. No bets." : direct ? "Your wallet signs every trade" : "Your play key signs every trade", MEME_W / 2, 478, 23, C.accent, "center", 600);
       const sol = this.coinBal === null ? "..." : `${(Number(this.coinBal) / 1e9).toFixed(3)} SOL`;
       const slot = direct ? `YOUR WALLET ${sol}` : this.coinBal === null ? "COIN SLOT ..." : `COIN SLOT ${sol} - ALL IT CAN SPEND`;
-      this.text(slot, MEME_W / 2, 520, 20, this.coinBal === BigInt(0) ? C.down : C.dim, "center", 600);
-      this.text("◀ ▶ coins  A pick  X cash out  B back", MEME_W / 2, 550, 21, C.dim, "center", 600);
+      this.text(slot, MEME_W / 2, 512, 20, this.coinBal === BigInt(0) ? C.down : C.dim, "center", 600);
+      this.text("◀ ▶ coins  A pick  X cash out  B back", MEME_W / 2, 548, 21, C.dim, "center", 600);
     }
 
     if ((this.scene === "chart" || this.scene === "result") && c) {
