@@ -3,8 +3,8 @@ import { JargonWall, PinStage, Rise, TiltIn } from "@/components/LandingMotion";
 import { LandingNav } from "@/components/LandingNav";
 import { GlossButton } from "@/components/GlossButton";
 import { HeroClouds } from "@/components/backgrounds/HeroClouds";
-import { AgentOrbClient } from "@/components/AgentOrbClient";
 import { LandingFooter } from "@/components/LandingFooter";
+import { FriendsSection } from "@/components/FriendsSection";
 
 const REPO_URL = "https://github.com/Venkat5599/Gameboy";
 
@@ -198,50 +198,8 @@ export default function Home() {
         </div>
       </section>
 
-      {/* PLAY WITH FRIENDS */}
-      <section id="ai-teams" className="scroll-mt-6 px-3 py-16 sm:px-6 sm:py-24">
-        <div className="mx-auto grid max-w-6xl gap-12 rounded-[28px] bg-white px-6 py-14 sm:px-12 lg:grid-cols-[1.2fr_1fr] lg:items-center [&>*]:min-w-0">
-          <div>
-            <AgentOrbClient size={112} tone="light" className="-ml-3 mb-4" />
-            <h2 className="font-display tracking-[-0.005em] text-[clamp(2rem,3.4vw,2.7rem)] font-bold leading-[1.06] tracking-[-0.015em]">
-              Beat your friends&rsquo;<br className="hidden sm:block" /> best score.
-            </h2>
-            <dl className="mt-8 space-y-5 text-[15px]">
-              <div>
-                <dt className="font-bold">Challenge links</dt>
-                <dd className="mt-1 text-ink-soft">Share your run as a card. Friends who open it see your score to beat, live in their round.</dd>
-              </div>
-              <div>
-                <dt className="font-bold">Trade duels</dt>
-                <dd className="mt-1 text-ink-soft">Finish a MEME DASH trade and dare a friend to beat it on the same coin. Everyone trades their own money. No bets, best trade wins.</dd>
-              </div>
-              <div>
-                <dt className="font-bold">A handheld in your pocket</dt>
-                <dd className="mt-1 text-ink-soft">Runs on the web and as a 1 MB Android app for Solana Seeker. D-pad, A, B, done.</dd>
-              </div>
-              <div>
-                <dt className="font-bold">Two cartridges in the box</dt>
-                <dd className="mt-1 text-ink-soft">The fishing net is secretly money parked in a pool. MEME DASH is secretly buying meme coins. Neither screen uses those words.</dd>
-              </div>
-            </dl>
-            <div className="mt-9">
-              <PrimaryLink href="/scrappyboy?net=devnet">Start a round</PrimaryLink>
-            </div>
-          </div>
-
-          <pre style={{ fontVariantLigatures: "none", fontWeight: 400 }} className="overflow-x-auto rounded-2xl bg-ground-deep p-6 font-mono text-[13px] leading-relaxed text-ink ring-1 ring-edge">
-{`What each button does
-
-  A  cast net    put money in the pool
-  A  collect     take the coins it earned
-  B  recentre    move the net to the price
-  B  pull in     take your money back out
-  A  buy coin    an actual coin, on Solana
-
-Trades are approved in your own wallet.`}
-          </pre>
-        </div>
-      </section>
+      {/* PLAY WITH FRIENDS: the versus screen and a working key map */}
+      <FriendsSection cta={<PrimaryLink href="/scrappyboy?net=devnet">Start a round</PrimaryLink>} />
 
       <LandingFooter repoUrl={REPO_URL} />
     </main>

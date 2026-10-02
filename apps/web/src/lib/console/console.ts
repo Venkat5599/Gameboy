@@ -183,17 +183,19 @@ export class Console {
     const lines = this.screen.overlay;
     if (lines.length) {
       if (!this.textFont) {
-        const fam = getComputedStyle(document.documentElement).getPropertyValue("--font-switzer").trim();
-        this.textFont = fam || "system-ui, sans-serif";
+        // the console's pixel face, so overlay copy matches the art it sits on
+        const fam = getComputedStyle(document.documentElement).getPropertyValue("--font-vt323").trim();
+        this.textFont = fam || "monospace";
       }
       const k = this.canvas.width / this.width;
       g.textBaseline = "top";
       for (const l of lines) {
-        const pt = Math.round(l.size * 1.15 * k);
-        g.font = `600 ${pt}px ${this.textFont}`;
+        // VT323 has one weight and a small body: set it larger, never synthesised bold
+        const pt = Math.round(l.size * 1.3 * k);
+        g.font = `${pt}px ${this.textFont}`;
         g.fillStyle = this.hex[l.col & 15] ?? "#fff";
         g.textAlign = l.align;
-        g.fillText(l.s, l.x * k, l.y * k);
+        g.fillText(l.s, l.x * k, l.y * k - pt * 0.1); // the face carries blank space above its caps
       }
       g.textAlign = "left";
       lines.length = 0;

@@ -230,6 +230,12 @@ body {
   .swim .swim-a, .swim .swim-b, .key-cap, .line-pop, .bubble { animation: none; }
 }
 
+/* Versus screen: the two fighters take turns lunging at each other. */
+@keyframes duel-lunge { 0%, 22%, 100% { translate: 0 0; } 8% { translate: var(--lunge, 16px) 0; } 14% { translate: calc(var(--lunge, 16px) * -0.25) 0; } }
+.duel-l { animation: duel-lunge 3.2s ease-out infinite; }
+.duel-r { --lunge: -16px; animation: duel-lunge 3.2s ease-out infinite; animation-delay: 1.6s; }
+@media (prefers-reduced-motion: reduce) { .duel-l, .duel-r { animation: none; } }
+
 /* Footer menu cursor: the console's blink. Decoration only, the links never depend on it. */
 @keyframes menu-cursor-blink { 0%, 62% { opacity: 1; } 63%, 100% { opacity: 0.3; } }
 .menu-cursor { animation: menu-cursor-blink 1.1s steps(1, end) infinite; }
